@@ -1,4 +1,5 @@
 /* Copyright (c) 2008-2009, Code Aurora Forum. All rights reserved.
+ * Copyright (C) 2010 Sony Ericsson Mobile Communications AB.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -77,6 +78,12 @@
 #include "msm_fb.h"
 #include "mddihost.h"
 
+#include <linux/autoconf.h>
+
+#ifdef CONFIG_FB_MSM_MDDI_TMD_NT35580
+#include "mddi_tmd_nt35580.h"
+#endif
+
 static uint32 mdp_last_dma2_update_width;
 static uint32 mdp_last_dma2_update_height;
 static uint32 mdp_curr_dma2_update_width;
@@ -104,9 +111,15 @@ static void mdp_dma2_update_lcd(struct msm_fb_data_type *mfd)
 	uint8 *src;
 	uint32 mddi_ld_param;
 	uint16 mddi_vdo_packet_reg;
+	uint16 mddi_vdo_packet_descriptor = 0;
 	struct msm_fb_panel_data *pdata =
 	    (struct msm_fb_panel_data *)mfd->pdev->dev.platform_data;
 	uint32 ystride = mfd->fbi->fix.line_length;
+
+#if defined(CONFIG_FB_MSM_MDDI_TMD_NT35580)
+	if (iBuf->dma_h == mfd->panel_info.yres)
+		mddi_nt35580_lcd_display_on();
+#endif
 
 	dma2_cfg_reg = DMA_PACK_ALIGN_LSB |
 		    DMA_OUT_SEL_AHB | DMA_IBUF_NONCONTIGUOUS;
@@ -152,7 +165,8 @@ static void mdp_dma2_update_lcd(struct msm_fb_data_type *mfd)
 			if (mfd->panel_info.pdest == DISPLAY_1) {
 				dma2_cfg_reg |= DMA_MDDI_DMAOUT_LCD_SEL_PRIMARY;
 				mddi_ld_param = 0;
-#ifdef MDDI_HOST_WINDOW_WORKAROUND
+#if defined(MDDI_HOST_WINDOW_WORKAROUND) \
+	|| defined(CONFIG_FB_MSM_MDDI_SEMC_LCD_WINDOW_ADJUST)
 				mddi_window_adjust(mfd, iBuf->dma_x,
 						   iBuf->dma_w - 1, iBuf->dma_y,
 						   iBuf->dma_h - 1);
@@ -161,7 +175,8 @@ static void mdp_dma2_update_lcd(struct msm_fb_data_type *mfd)
 				dma2_cfg_reg |=
 				    DMA_MDDI_DMAOUT_LCD_SEL_SECONDARY;
 				mddi_ld_param = 1;
-#ifdef MDDI_HOST_WINDOW_WORKAROUND
+#if defined(MDDI_HOST_WINDOW_WORKAROUND) \
+	|| defined(CONFIG_FB_MSM_MDDI_SEMC_LCD_WINDOW_ADJUST)
 				mddi_window_adjust(mfd, iBuf->dma_x,
 						   iBuf->dma_w - 1, iBuf->dma_y,
 						   iBuf->dma_h - 1);
@@ -204,12 +219,20 @@ static void mdp_dma2_update_lcd(struct msm_fb_data_type *mfd)
 	MDP_OUTP(MDP_BASE + 0x9000c, ystride);
 #endif
 
-	if (mfd->panel_info.bpp == 18) {
+	/* adding dynamic setup of register */
+	if (mfd->panel_info.bpp == 16) {
+		mddi_vdo_packet_descriptor = 0x5565;
+		dma2_cfg_reg |= DMA_DSTC0G_6BITS |	/* 565 16BPP */
+		    DMA_DSTC1B_5BITS | DMA_DSTC2R_5BITS;
+	} else if (mfd->panel_info.bpp == 18) {
+		mddi_vdo_packet_descriptor = 0x5666;
 		dma2_cfg_reg |= DMA_DSTC0G_6BITS |	/* 666 18BPP */
 		    DMA_DSTC1B_6BITS | DMA_DSTC2R_6BITS;
 	} else {
-		dma2_cfg_reg |= DMA_DSTC0G_6BITS |	/* 565 16BPP */
-		    DMA_DSTC1B_5BITS | DMA_DSTC2R_5BITS;
+		/* assuming 24 bpp */
+		mddi_vdo_packet_descriptor = 0x5888;
+		dma2_cfg_reg |= DMA_DSTC0G_8BITS |	/* 888 24BPP */
+		    DMA_DSTC1B_8BITS | DMA_DSTC2R_8BITS;
 	}
 
 	if (mddi_dest) {
@@ -218,12 +241,12 @@ static void mdp_dma2_update_lcd(struct msm_fb_data_type *mfd)
 			 (iBuf->dma_y << 16) | iBuf->dma_x);
 		MDP_OUTP(MDP_CMD_DEBUG_ACCESS_BASE + 0x01a0, mddi_ld_param);
 		MDP_OUTP(MDP_CMD_DEBUG_ACCESS_BASE + 0x01a4,
-			 (MDDI_VDO_PACKET_DESC << 16) | mddi_vdo_packet_reg);
+			 (mddi_vdo_packet_descriptor << 16) | mddi_vdo_packet_reg);
 #else
 		MDP_OUTP(MDP_BASE + 0x90010, (iBuf->dma_y << 16) | iBuf->dma_x);
 		MDP_OUTP(MDP_BASE + 0x00090, mddi_ld_param);
 		MDP_OUTP(MDP_BASE + 0x00094,
-			 (MDDI_VDO_PACKET_DESC << 16) | mddi_vdo_packet_reg);
+			 (mddi_vdo_packet_descriptor << 16) | mddi_vdo_packet_reg);
 #endif
 	} else {
 		/* setting EBI2 LCDC write window */
@@ -499,14 +522,14 @@ void mdp_set_dma_pan_info(struct fb_info *info, struct mdp_dirty_region *dirty,
 			  boolean sync)
 {
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
+	  struct fb_info *fbi = mfd->fbi;
 	MDPIBUF *iBuf;
 	int bpp = info->var.bits_per_pixel / 8;
 
 	down(&mfd->sem);
 	iBuf = &mfd->ibuf;
 	iBuf->buf = (uint8 *) info->fix.smem_start;
-	iBuf->buf += info->var.xoffset * bpp +
-			info->var.yoffset * info->fix.line_length;
+	iBuf->buf += calc_fb_offset(mfd, fbi, bpp);
 
 	iBuf->ibuf_width = info->var.xres_virtual;
 	iBuf->bpp = bpp;

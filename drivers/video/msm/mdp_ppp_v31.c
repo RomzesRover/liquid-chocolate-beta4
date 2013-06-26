@@ -805,7 +805,10 @@ void mdp_adjust_start_addr(uint8 **src0,
 	case 1:
 		/* MDP 3.1 HW bug workaround */
 		if (iBuf->ibuf_type == MDP_YCRYCB_H2V1) {
-			*src0 += (x + y * width) * bpp;
+			  if (iBuf->mdpImg.imgType == MDP_Y_CBCR_H2V2_ADRENO && layer == 0)
+    *src0 += (x + y * ALIGN(width, 32)) * bpp;
+  else
+    *src0 += (x + y * width) * bpp;
 			x = y = 0;
 			width = iBuf->roi.dst_width;
 			height = iBuf->roi.dst_height;
@@ -828,6 +831,9 @@ void mdp_set_blend_attr(MDPIBUF *iBuf,
 			uint32 perPixelAlpha, uint32 *pppop_reg_ptr)
 {
 	int bg_alpha;
+
+	*alpha = iBuf->mdpImg.alpha;
+	*tpVal = iBuf->mdpImg.tpVal;
 
 	if (iBuf->mdpImg.mdpOp & MDPOP_FG_PM_ALPHA) {
 		if (perPixelAlpha) {
@@ -877,12 +883,9 @@ void mdp_set_blend_attr(MDPIBUF *iBuf,
 			    PPP_OP_ROT_ON | PPP_OP_BLEND_ON |
 			    PPP_OP_BLEND_CONSTANT_ALPHA |
 			    PPP_OP_BLEND_ALPHA_BLEND_NORMAL;
-			*alpha = iBuf->mdpImg.alpha;
 		}
 
-		if (iBuf->mdpImg.mdpOp & MDPOP_TRANSP) {
+		if (iBuf->mdpImg.mdpOp & MDPOP_TRANSP)
 			*pppop_reg_ptr |= PPP_BLEND_CALPHA_TRNASP;
-			*tpVal = iBuf->mdpImg.tpVal;
-		}
 	}
 }

@@ -1,57 +1,13 @@
-/* Copyright (c) 2008-2009, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2008-2009, 2012 Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of Code Aurora Forum nor
- *       the names of its contributors may be used to endorse or promote
- *       products derived from this software without specific prior written
- *       permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * Alternatively, provided that this notice is retained in full, this software
- * may be relicensed by the recipient under the terms of the GNU General Public
- * License version 2 ("GPL") and only version 2, in which case the provisions of
- * the GPL apply INSTEAD OF those given above.  If the recipient relicenses the
- * software under the GPL, then the identification text in the MODULE_LICENSE
- * macro must be changed to reflect "GPLv2" instead of "Dual BSD/GPL".  Once a
- * recipient changes the license terms to the GPL, subsequent recipients shall
- * not relicense under alternate licensing terms, including the BSD or dual
- * BSD/GPL terms.  In addition, the following license statement immediately
- * below and between the words START and END shall also then apply when this
- * software is relicensed under the GPL:
- *
- * START
- *
- * This program is free software; you can redistribute it and/or modify it under
- * the terms of the GNU General Public License version 2 and only version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
- * details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * END
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  */
 
@@ -1669,6 +1625,7 @@ static int mdp_get_edge_cond(MDPIBUF *iBuf, uint32 *dup, uint32 *dup2)
 		 * offsite in vertical axis
 		 */
 	case MDP_Y_CBCR_H2V2:
+	case MDP_Y_CBCR_H2V2_ADRENO:
 	case MDP_Y_CRCB_H2V2:
 		/* floor( luma_interp_point_left / 2) */
 		chroma_interp_point_left = luma_interp_point_left >> 1;
@@ -1722,6 +1679,7 @@ static int mdp_get_edge_cond(MDPIBUF *iBuf, uint32 *dup, uint32 *dup2)
 			break;
 
 		case MDP_Y_CBCR_H2V2:
+		case MDP_Y_CBCR_H2V2_ADRENO:
 		case MDP_Y_CRCB_H2V2:
 			/*
 			 * cosite in horizontal dir, and offsite in vertical dir
@@ -2219,26 +2177,6 @@ void mdp_set_scale(MDPIBUF *iBuf,
 			*pppop_reg_ptr |=
 			    (PPP_OP_SCALE_Y_ON | PPP_OP_SCALE_X_ON);
 
-		/* let's use SHIM logic to calculate the partial ROI scaling */
-#if 0
-			phasex_step =
-			    (uint32) mdp_do_div(0x20000000 * iBuf->roi.width,
-						dst_roi_width_scale);
-			phasey_step =
-			    (uint32) mdp_do_div(0x20000000 * iBuf->roi.height,
-						dst_roi_height_scale);
-
-/*
-    phasex_step= ((long long) iBuf->roi.width * 0x20000000)/dst_roi_width_scale;
-    phasey_step= ((long long)iBuf->roi.height * 0x20000000)/dst_roi_height_scale;
-*/
-
-			phasex_init =
-			    (((long long)phasex_step - 0x20000000) >> 1);
-			phasey_init =
-			    (((long long)phasey_step - 0x20000000) >> 1);
-
-#else
 			mdp_calc_scale_params(iBuf->roi.x, iBuf->roi.width,
 					      dst_roi_width_scale, 1,
 					      &phasex_init, &phasex_step,
@@ -2247,7 +2185,6 @@ void mdp_set_scale(MDPIBUF *iBuf,
 					      dst_roi_height_scale, 0,
 					      &phasey_init, &phasey_step,
 					      &dummy, &dummy);
-#endif
 			MDP_OUTP(MDP_CMD_DEBUG_ACCESS_BASE + 0x013c,
 				 phasex_init);
 			MDP_OUTP(MDP_CMD_DEBUG_ACCESS_BASE + 0x0140,
@@ -2464,22 +2401,25 @@ void mdp_adjust_start_addr(uint8 **src0,
 			   uint32 width,
 			   uint32 height, int bpp, MDPIBUF *iBuf, int layer)
 {
-	*src0 += (x + y * width) * bpp;
 
-	/* if it's dest/bg buffer, we need to adjust it for rotation */
+  if (iBuf->mdpImg.imgType == MDP_Y_CBCR_H2V2_ADRENO && layer == 0)
+    *src0 += (x + y * ALIGN(width, 32)) * bpp;
+  else
+    *src0 += (x + y * width) * bpp; 
+
 	if (layer != 0)
 		*src0 = mdp_adjust_rot_addr(iBuf, *src0, 0);
 
 	if (*src1) {
-		/*
-		 * MDP_Y_CBCR_H2V2/MDP_Y_CRCB_H2V2 cosite for now
-		 * we need to shift x direction same as y dir for offsite
-		 */
-		*src1 +=
-		    ((x / h_slice) * h_slice +
-		     ((y == 0) ? 0 : ((y + 1) / v_slice - 1) * width)) * bpp;
+		    if (iBuf->mdpImg.imgType == MDP_Y_CBCR_H2V2_ADRENO
+              && layer == 0)
+      *src1 += ((x / h_slice) * h_slice + ((y == 0) ? 0 :
+      (((y + 1) / v_slice - 1) * (ALIGN(width/2, 32) * 2))))
+                  * bpp;
+    else
+      *src1 += ((x / h_slice) * h_slice +
+      ((y == 0) ? 0 : ((y + 1) / v_slice - 1) * width)) * bpp; 
 
-		/* if it's dest/bg buffer, we need to adjust it for rotation */
 		if (layer != 0)
 			*src1 = mdp_adjust_rot_addr(iBuf, *src1, 1);
 	}

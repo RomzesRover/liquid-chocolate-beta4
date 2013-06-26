@@ -79,6 +79,7 @@
 #include "msm_fb.h"
 #include "mddihost.h"
 
+
 #ifdef CONFIG_FB_MSM_MDP40
 #define MDP_SYNC_CFG_0		0x100
 #define MDP_SYNC_STATUS_0	0x10c

@@ -415,7 +415,8 @@ static int __init mddi_driver_init(void)
 		return ret;
 	}
 
-	mddi_init();
+	if (mddi_resource_initialized == 1)
+		mddi_init();
 
 	return ret;
 }

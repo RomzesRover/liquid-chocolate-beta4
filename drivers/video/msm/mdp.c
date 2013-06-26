@@ -81,6 +81,12 @@
 #include "mdp4.h"
 #endif
 
+#include <linux/autoconf.h>
+
+#ifdef CONFIG_FB_MSM_MDDI_TMD_NT35580
+#include "mddi_tmd_nt35580.h"
+#endif
+
 static struct clk *mdp_clk;
 static struct clk *mdp_pclk;
 
@@ -339,9 +345,7 @@ void mdp_enable_irq(uint32 term)
 	unsigned long irq_flags;
 
 	spin_lock_irqsave(&mdp_lock, irq_flags);
-	if (mdp_irq_mask & term) {
-		printk(KERN_ERR "MDP IRQ term-0x%x is already set\n", term);
-	} else {
+	if (!(mdp_irq_mask & term)) {
 		mdp_irq_mask |= term;
 		if (mdp_irq_mask && !mdp_irq_enabled) {
 			mdp_irq_enabled = 1;
@@ -420,9 +424,6 @@ void mdp_pipe_kickoff(uint32 term, struct msm_fb_data_type *mfd)
 		/* DMA update timestamp */
 		mdp_dma2_last_update_time = ktime_get_real();
 		/* let's turn on DMA2 block */
-#if 0
-		mdp_pipe_ctrl(MDP_DMA2_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
-#endif
 #ifdef CONFIG_FB_MSM_MDP22
 		outpdw(MDP_CMD_DEBUG_ACCESS_BASE + 0x0044, 0x0);/* start DMA */
 #else
@@ -674,6 +675,9 @@ irqreturn_t mdp_isr(int irq, void *ptr)
 			mdp_pipe_ctrl(MDP_DMA2_BLOCK, MDP_BLOCK_POWER_OFF,
 				      TRUE);
 			complete(&dma->comp);
+#ifdef CONFIG_FB_MSM_MDDI_TMD_NT35580
+			mddi_nt35580_lcd_display_on();
+#endif
 		}
 		/* PPP Complete */
 		if (mdp_interrupt & MDP_PPP_DONE) {
@@ -829,6 +833,10 @@ static int mdp_off(struct platform_device *pdev)
 	return ret;
 }
 
+#if defined(CONFIG_FB_MSM_MDDI_TMD_NT35580)
+static DEFINE_MUTEX(mdp_on_mutex);
+#endif
+
 static int mdp_on(struct platform_device *pdev)
 {
 #ifdef MDP_HW_VSYNC
@@ -836,11 +844,24 @@ static int mdp_on(struct platform_device *pdev)
 #endif
 
 	int ret = 0;
+#if defined(CONFIG_FB_MSM_MDDI_TMD_NT35580)
+	int i;
+#endif
 
 #ifdef MDP_HW_VSYNC
 	mdp_hw_vsync_clk_enable(mfd);
 #endif
 
+#if defined(CONFIG_FB_MSM_MDDI_TMD_NT35580)
+	mutex_lock(&mdp_on_mutex);
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+	for (i = 0; i < MDP_CCS_SIZE; i++)
+		writel(mdp_ccs_yuv2rgb.ccs[i], MDP_CSC_PRMVn(i));
+	for (i = 0; i < MDP_BV_SIZE; i++)
+		writel(mdp_ccs_yuv2rgb.bv[i], MDP_CSC_PRE_BV1n(i));
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+	mutex_unlock(&mdp_on_mutex);
+#endif
 	ret = panel_next_on(pdev);
 
 	return ret;

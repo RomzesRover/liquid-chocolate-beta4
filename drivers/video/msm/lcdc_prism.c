@@ -75,14 +75,14 @@ static int __init lcdc_prism_init(void)
 		return 0;
 #endif
 
-	pinfo.xres = 800;
-	pinfo.yres = 480;
+	pinfo.xres = 480;
+	pinfo.yres = 800;
 	pinfo.type = LCDC_PANEL;
 	pinfo.pdest = DISPLAY_1;
 	pinfo.wait_cycle = 0;
-	pinfo.bpp = 24;
+	pinfo.bpp = 16;
 	pinfo.fb_num = 2;
-	pinfo.clk_rate = 38400000;
+	pinfo.clk_rate = 24576000;
 
 	pinfo.lcdc.h_back_porch = 21;
 	pinfo.lcdc.h_front_porch = 81;
@@ -94,7 +94,7 @@ static int __init lcdc_prism_init(void)
 	pinfo.lcdc.underflow_clr = 0xff;	/* blue */
 	pinfo.lcdc.hsync_skew = 0;
 
-	ret = lcdc_device_register(&pinfo, NULL);
+	ret = lcdc_device_register(&pinfo);
 	if (ret)
 		printk(KERN_ERR "%s: failed to register device!\n", __func__);
 

@@ -1,4 +1,5 @@
-/* Copyright (c) 2008-2010, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2008-2009, Code Aurora Forum. All rights reserved.
+ * Copyright (C) 2010 Sony Ericsson Mobile Communications AB.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -30,6 +31,7 @@
 #define MSM_FB_PANEL_H
 
 #include "msm_fb_def.h"
+#include <mach/board.h>
 
 struct msm_fb_data_type;
 
@@ -107,10 +109,11 @@ struct msm_panel_info {
 	__u32 clk_min;
 	__u32 clk_max;
 	__u32 frame_count;
-#if defined(CONFIG_MACH_ACER_A1)
-	__u32 width;	// width of picture in mm
-	__u32 height;	// height of picture in mm
-#endif
+
+	/* physical size in mm */
+	__u32 width;
+	__u32 height;
+
 	union {
 		struct mddi_panel_info mddi;
 	};
@@ -123,6 +126,7 @@ struct msm_panel_info {
 
 struct msm_fb_panel_data {
 	struct msm_panel_info panel_info;
+	struct panel_data_ext *panel_ext;
 	void (*set_rect) (int x, int y, int xres, int yres);
 	void (*set_vsync_notifier) (msm_fb_vsync_handler_type, void *arg);
 	void (*set_backlight) (struct msm_fb_data_type *);
@@ -141,7 +145,7 @@ struct platform_device *msm_fb_device_alloc(struct msm_fb_panel_data *pdata,
 int panel_next_on(struct platform_device *pdev);
 int panel_next_off(struct platform_device *pdev);
 
-int lcdc_device_register(struct msm_panel_info *pinfo, struct msm_fb_panel_data *pdata);
+int lcdc_device_register(struct msm_panel_info *pinfo);
 
 int mddi_toshiba_device_register(struct msm_panel_info *pinfo,
 					u32 channel, u32 panel);
