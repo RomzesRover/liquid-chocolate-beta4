@@ -122,10 +122,14 @@
 
 #define SMEM_SPINLOCK_I2C	"S:6"
 
-#define MSM_PMEM_ADSP_SIZE	0x02300000
-#define MSM_FB_SIZE         0x2EE000
+#define MSM_PMEM_ADSP_SIZE	0x800000
+#ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
+#define MSM_FB_SIZE     0x00278780
+#else
+#define MSM_FB_SIZE     0x001B0500
+#endif
+
 #define MSM_AUDIO_SIZE		0x80000
-#define MSM_GPU_PHYS_SIZE 	SZ_2M
 
 #ifdef CONFIG_MSM_SOC_REV_A
 #define MSM_SMI_BASE		0xE0000000
@@ -133,18 +137,21 @@
 #define MSM_SMI_BASE		0x00000000
 #endif
 
-#define MSM_SHARED_RAM_PHYS	(MSM_SMI_BASE + 0x00100000)
+#define MSM_SHARED_RAM_PHYS	0x00100000
 
-#define MSM_PMEM_SMI_BASE	(MSM_SMI_BASE + 0x02B00000)
-#define MSM_PMEM_SMI_SIZE	0x01D00000
+#define MSM_PMEM_SMI_BASE	0x02B00000
+#define MSM_PMEM_SMI_SIZE	0x01500000
 
 #define MSM_FB_BASE		MSM_PMEM_SMI_BASE
-#define MSM_GPU_PHYS_BASE 	(MSM_FB_BASE + MSM_FB_SIZE)
-#define MSM_PMEM_SMIPOOL_BASE	(MSM_GPU_PHYS_BASE + MSM_GPU_PHYS_SIZE)
-#define MSM_PMEM_SMIPOOL_SIZE	(MSM_PMEM_SMI_SIZE - MSM_FB_SIZE \
-					- MSM_GPU_PHYS_SIZE)
+#define MSM_PMEM_SMIPOOL_BASE	(MSM_FB_BASE + MSM_FB_SIZE)
+#define MSM_PMEM_SMIPOOL_SIZE	(MSM_PMEM_SMI_SIZE - MSM_FB_SIZE)
 
 #define PMEM_KERNEL_EBI1_SIZE	0x28000
+
+#define PMIC_VREG_WLAN_LEVEL	2600
+#define PMIC_VREG_GP6_LEVEL	2900
+
+#define FPGA_SDCC_STATUS	0x70000280
 
 static DEFINE_MUTEX(wifibtmutex);
 
@@ -155,11 +162,6 @@ static DEFINE_MUTEX(wifibtmutex);
 static int wifi_status_register(void (*callback)(int card_present, void *dev_id), void *dev_id);
 int wifi_set_carddetect(int val);
 #endif
-
-#define PMIC_VREG_WLAN_LEVEL	2600
-#define PMIC_VREG_GP6_LEVEL	2900
-
-#define FPGA_SDCC_STATUS	0x70000280
 
 #ifdef CONFIG_SMC91X
 static struct resource smc91x_resources[] = {
@@ -1656,14 +1658,14 @@ int wifi_set_carddetect(int val)
 }
 
 EXPORT_SYMBOL(wifi_set_carddetect);
-int bcm_wlan_power_off(int a) {
+void bcm_wlan_power_off(int a) {
 //	(void)a;
 	wifi_power(2*a-2);
 	//wifi_set_carddetect(0);
 }
 EXPORT_SYMBOL(bcm_wlan_power_off);
 
-int bcm_wlan_power_on(int a) {
+void bcm_wlan_power_on(int a) {
 //	(void)a;
 	wifi_power(2*a-1);
 	//wifi_set_carddetect(1);
@@ -1724,18 +1726,14 @@ static struct kgsl_device_platform_data kgsl_3d0_pdata = {
 	.pwr_data = {
 		.pwrlevel = {
 			{
-				.gpu_freq = 128000000,
+				.gpu_freq = 0,
 				.bus_freq = 128000000,
-			},
-			{
-				.gpu_freq = 128000000,
-				.bus_freq = 0,
 			},
 		},
 		.init_level = 0,
-		.num_levels = 2,
+		.num_levels = 1,
 		.set_grp_async = NULL,
-		.idle_timeout = HZ/20,
+		.idle_timeout = HZ/5,
 		.nap_allowed = true,
 	},
 	.clk = {
@@ -2852,10 +2850,11 @@ static struct mmc_platform_data qsd8x50_sdc1_data = {
 #ifdef CONFIG_MMC_MSM_SDC1_DUMMY52_REQUIRED
 	.dummy52_required = 1,
 #endif
-	.msmsdcc_fmin	= 144000,
-	.msmsdcc_fmid	= 25000000,
-	.msmsdcc_fmax	= 49152000,
-	.nonremovable	= 0,
+#if defined(CONFIG_MACH_ACER_A1)
+	.status_irq = MSM_GPIO_TO_INT(A1_GPIO_SDCARD_DETECT),
+	.status = SDMMC_status,
+	.irq_flags = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
+#endif
 };
 #endif
 
@@ -2866,26 +2865,18 @@ static struct mmc_platform_data qsd8x50_sdcc2_wifi = {
     .register_status_notify = wifi_status_register,
     .embedded_sdio = &bcm_wifi_emb_data,
     .mmc_bus_width  = MMC_CAP_4_BIT_DATA,
-    .msmsdcc_fmin	= 144000,
-    .msmsdcc_fmid	= 25000000,
-    .msmsdcc_fmax	= 49152000,
-    .nonremovable	= 0,
 };
 #endif
 
 #ifdef CONFIG_MMC_MSM_SDC2_SUPPORT
 static struct mmc_platform_data qsd8x50_sdc2_data = {
-	.ocr_mask       = MMC_VDD_27_28 | MMC_VDD_28_29,
+	.ocr_mask       = MMC_VDD_20_21,//MMC_VDD_27_28 | MMC_VDD_28_29,
 	.translate_vdd  = msm_sdcc_setup_power,
 	.mmc_bus_width  = MMC_CAP_4_BIT_DATA,
 	.wpswitch	= msm_sdcc_get_wpswitch,
 #ifdef CONFIG_MMC_MSM_SDC2_DUMMY52_REQUIRED
 	.dummy52_required = 1,
 #endif
-	.msmsdcc_fmin	= 144000,
-	.msmsdcc_fmid	= 25000000,
-	.msmsdcc_fmax	= 49152000,
-	.nonremovable	= 1,
 };
 #endif
 
@@ -2901,10 +2892,6 @@ static struct mmc_platform_data qsd8x50_sdc3_data = {
 #ifdef CONFIG_MMC_MSM_SDC3_DUMMY52_REQUIRED
 	.dummy52_required = 1,
 #endif
-	.msmsdcc_fmin	= 144000,
-	.msmsdcc_fmid	= 25000000,
-	.msmsdcc_fmax	= 49152000,
-	.nonremovable	= 0,
 };
 #endif
 
@@ -2917,10 +2904,6 @@ static struct mmc_platform_data qsd8x50_sdc4_data = {
 #ifdef CONFIG_MMC_MSM_SDC4_DUMMY52_REQUIRED
 	.dummy52_required = 1,
 #endif
-	.msmsdcc_fmin	= 144000,
-	.msmsdcc_fmid	= 25000000,
-	.msmsdcc_fmax	= 49152000,
-	.nonremovable	= 0,
 };
 #endif
 
@@ -3005,6 +2988,12 @@ static struct msm_pm_platform_data msm_pm_data[MSM_PM_SLEEP_MODE_NR] = {
 	[MSM_PM_SLEEP_MODE_POWER_COLLAPSE_NO_XO_SHUTDOWN].latency = 4594,
 	[MSM_PM_SLEEP_MODE_POWER_COLLAPSE_NO_XO_SHUTDOWN].residency = 23740,
 
+	[MSM_PM_SLEEP_MODE_POWER_COLLAPSE_STANDALONE].supported = 1,
+	[MSM_PM_SLEEP_MODE_POWER_COLLAPSE_STANDALONE].suspend_enabled = 0,
+	[MSM_PM_SLEEP_MODE_POWER_COLLAPSE_STANDALONE].idle_enabled = 1,
+	[MSM_PM_SLEEP_MODE_POWER_COLLAPSE_STANDALONE].latency = 500,
+	[MSM_PM_SLEEP_MODE_POWER_COLLAPSE_STANDALONE].residency = 6000,
+
 	[MSM_PM_SLEEP_MODE_RAMP_DOWN_AND_WAIT_FOR_INTERRUPT].supported = 1,
 	[MSM_PM_SLEEP_MODE_RAMP_DOWN_AND_WAIT_FOR_INTERRUPT].suspend_enabled
 		= 1,
@@ -3019,8 +3008,7 @@ static struct msm_pm_platform_data msm_pm_data[MSM_PM_SLEEP_MODE_NR] = {
 	[MSM_PM_SLEEP_MODE_WAIT_FOR_INTERRUPT].residency = 0,
 };
 
-static void
-msm_i2c_gpio_config(int iface, int config_type)
+static void msm_i2c_gpio_config(int iface, int config_type)
 {
 	int gpio_scl;
 	int gpio_sda;
@@ -3097,7 +3085,7 @@ early_param("pmem_kernel_smi_size", pmem_kernel_smi_size_setup);
 #endif
 
 static unsigned pmem_sf_size = MSM_PMEM_SF_SIZE;
-static int __init pmem_sf_size_setup(char *p)
+static void __init pmem_sf_size_setup(char *p)
 {
 	pmem_sf_size = memparse(p, NULL);
 	return 0;
@@ -3105,7 +3093,7 @@ static int __init pmem_sf_size_setup(char *p)
 early_param("pmem_sf_size", pmem_sf_size_setup);
 
 static unsigned pmem_adsp_size = MSM_PMEM_ADSP_SIZE;
-static int __init pmem_adsp_size_setup(char *p)
+static void __init pmem_adsp_size_setup(char *p)
 {
 	pmem_adsp_size = memparse(p, NULL);
 	return 0;

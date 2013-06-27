@@ -1,22 +1,60 @@
 /* Copyright (c) 2008-2009, Code Aurora Forum. All rights reserved.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *     * Neither the name of Code Aurora Forum nor
+ *       the names of its contributors may be used to endorse or promote
+ *       products derived from this software without specific prior written
+ *       permission.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * Alternatively, provided that this notice is retained in full, this software
+ * may be relicensed by the recipient under the terms of the GNU General Public
+ * License version 2 ("GPL") and only version 2, in which case the provisions of
+ * the GPL apply INSTEAD OF those given above.  If the recipient relicenses the
+ * software under the GPL, then the identification text in the MODULE_LICENSE
+ * macro must be changed to reflect "GPLv2" instead of "Dual BSD/GPL".  Once a
+ * recipient changes the license terms to the GPL, subsequent recipients shall
+ * not relicense under alternate licensing terms, including the BSD or dual
+ * BSD/GPL terms.  In addition, the following license statement immediately
+ * below and between the words START and END shall also then apply when this
+ * software is relicensed under the GPL:
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
+ * START
+ *
+ * This program is free software; you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License version 2 and only version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+ *
+ * END
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
  *
  */
 
-#include <linux/slab.h>
 #include <linux/cdev.h>
 #include <linux/file.h>
 #include <linux/device.h>
@@ -105,7 +143,6 @@ struct venc_msg_list {
 };
 struct venc_buf {
 	int fd;
-	u32 src;
 	u32 offset;
 	u32 size;
 	u32 btype;
@@ -118,7 +155,7 @@ struct venc_pmem_list {
 };
 struct venc_dev {
 	bool is_active;
-	bool pmem_freed;
+	bool stop_called;
 	enum venc_state_type state;
 	struct list_head venc_msg_list_head;
 	struct list_head venc_msg_list_free;
@@ -260,7 +297,6 @@ static struct venc_pmem_list *venc_add_pmem_to_list(struct venc_dev *dvenc,
 	plist->buf.size = mptr->size;
 	plist->buf.btype = btype;
 	plist->buf.offset = mptr->offset;
-	plist->buf.src = mptr->src;
 
 	spin_lock_irqsave(&dvenc->venc_pmem_list_lock, flags);
 	list_add(&plist->list, &dvenc->venc_pmem_list_head);
@@ -473,7 +509,7 @@ static int venc_encode_frame(struct venc_dev *dvenc, void *argp)
 	q6_input.flags = 0;
 	if (input.flags & VENC_FLAG_EOS)
 		q6_input.flags |= 0x00000001;
-	q6_input.yuv_buf.region = plist->buf.src;
+	q6_input.yuv_buf.region = 0;
 	q6_input.yuv_buf.phys = plist->buf.paddr;
 	q6_input.yuv_buf.size = plist->buf.size;
 	q6_input.yuv_buf.offset = 0;
@@ -526,7 +562,7 @@ static int venc_fill_output(struct venc_dev *dvenc, void *argp)
 			return -EPERM;
 		}
 	}
-	q6_output.bit_stream_buf.region = plist->buf.src;
+	q6_output.bit_stream_buf.region = 0;
 	q6_output.bit_stream_buf.phys = (u32)plist->buf.paddr;
 	q6_output.bit_stream_buf.size = plist->buf.size;
 	q6_output.bit_stream_buf.offset = 0;
@@ -544,6 +580,7 @@ static int venc_stop(struct venc_dev *dvenc)
 	int ret = 0;
 	struct venc_msg msg;
 
+	dvenc->stop_called = 1;
 	ret = dal_call_f0(dvenc->q6_handle, VENC_DALRPC_STOP, 1);
 	if (ret) {
 		pr_err("%s: remote runction failed (%d)\n", __func__, ret);
@@ -773,17 +810,10 @@ static int venc_q6_stop(struct venc_dev *dvenc)
 {
 	int ret = 0;
 	struct venc_pmem_list *plist;
-	unsigned long flags;
 
 	wake_up(&dvenc->venc_msg_evt);
-	spin_lock_irqsave(&dvenc->venc_pmem_list_lock, flags);
-	if (!dvenc->pmem_freed) {
-		list_for_each_entry(plist, &dvenc->venc_pmem_list_head, list)
-			put_pmem_file(plist->buf.file);
-		dvenc->pmem_freed = 1;
-	}
-	spin_unlock_irqrestore(&dvenc->venc_pmem_list_lock, flags);
-
+	list_for_each_entry(plist, &dvenc->venc_pmem_list_head, list)
+		put_pmem_file(plist->buf.file);
 	dvenc->state = VENC_STATE_STOP;
 	return ret;
 }
@@ -833,7 +863,7 @@ static void venc_q6_callback(void *data, int len, void *cookie)
 	struct venc_msg_type *q6_msg = NULL;
 	struct venc_msg msg, msg1;
 	union venc_msg_data smsg1, smsg2;
-	unsigned long msg_code = 0;
+	unsigned long msg_code;
 	struct venc_input_payload *pload1;
 	struct venc_output_payload *pload2;
 	uint32_t * tmp = (uint32_t *) data;
@@ -1019,7 +1049,7 @@ static int q6venc_open(struct inode *inode, struct file *file)
 	int i;
 	int ret = 0;
 	struct venc_dev *dvenc;
-	struct venc_msg_list *plist, *tmp;
+	struct venc_msg_list *plist;
 	struct dal_info version_info;
 
 	dvenc = kzalloc(sizeof(struct venc_dev), GFP_KERNEL);
@@ -1074,7 +1104,7 @@ static int q6venc_open(struct inode *inode, struct file *file)
 err_venc_dal_open:
 	dal_detach(dvenc->q6_handle);
 err_venc_dal_attach:
-	list_for_each_entry_safe(plist, tmp, &dvenc->venc_msg_list_free, list) {
+	list_for_each_entry(plist, &dvenc->venc_msg_list_free, list) {
 		list_del(&plist->list);
 		kfree(plist);
 	}
@@ -1090,13 +1120,13 @@ static int q6venc_release(struct inode *inode, struct file *file)
 	struct venc_msg_list *l, *n;
 	struct venc_pmem_list *plist, *m;
 	struct venc_dev *dvenc;
-	unsigned long flags;
 
 	venc_ref--;
 	dvenc = file->private_data;
 	dvenc->is_active = 0;
 	wake_up_all(&dvenc->venc_msg_evt);
-	dal_call_f0(dvenc->q6_handle, VENC_DALRPC_STOP, 1);
+	if (!dvenc->stop_called)
+		dal_call_f0(dvenc->q6_handle, VENC_DALRPC_STOP, 1);
 	dal_call_f0(dvenc->q6_handle, DAL_OP_CLOSE, 1);
 	dal_detach(dvenc->q6_handle);
 	list_for_each_entry_safe(l, n, &dvenc->venc_msg_list_free, list) {
@@ -1107,13 +1137,11 @@ static int q6venc_release(struct inode *inode, struct file *file)
 		list_del(&l->list);
 		kfree(l);
 	}
-	spin_lock_irqsave(&dvenc->venc_pmem_list_lock, flags);
-	if (!dvenc->pmem_freed) {
+	if (!dvenc->stop_called) {
 		list_for_each_entry(plist, &dvenc->venc_pmem_list_head, list)
 			put_pmem_file(plist->buf.file);
-		dvenc->pmem_freed = 1;
+		dvenc->stop_called = 1;
 	}
-	spin_unlock_irqrestore(&dvenc->venc_pmem_list_lock, flags);
 
 	list_for_each_entry_safe(plist, m, &dvenc->venc_pmem_list_head, list) {
 		list_del(&plist->list);
@@ -1193,7 +1221,7 @@ static void __exit q6venc_exit(void)
 	unregister_chrdev_region(venc_dev_num, 1);
 }
 
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("Dual BSD/GPL");
 MODULE_DESCRIPTION("Video encoder driver for QDSP6");
 MODULE_VERSION("2.0");
 module_init(q6venc_init);
