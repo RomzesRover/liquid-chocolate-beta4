@@ -122,10 +122,9 @@
 
 #define SMEM_SPINLOCK_I2C	"S:6"
 
-#define MSM_PMEM_ADSP_SIZE	0x02300000
-#define MSM_FB_SIZE         0x2EE000
+#define MSM_PMEM_ADSP_SIZE	0xFFF000
+#define MSM_FB_SIZE         0x177000
 #define MSM_AUDIO_SIZE		0x80000
-#define MSM_GPU_PHYS_SIZE 	SZ_2M
 
 #ifdef CONFIG_MSM_SOC_REV_A
 #define MSM_SMI_BASE		0xE0000000
@@ -136,15 +135,18 @@
 #define MSM_SHARED_RAM_PHYS	(MSM_SMI_BASE + 0x00100000)
 
 #define MSM_PMEM_SMI_BASE	(MSM_SMI_BASE + 0x02B00000)
-#define MSM_PMEM_SMI_SIZE	0x01D00000
+#define MSM_PMEM_SMI_SIZE	0x01500000
 
 #define MSM_FB_BASE		MSM_PMEM_SMI_BASE
-#define MSM_GPU_PHYS_BASE 	(MSM_FB_BASE + MSM_FB_SIZE)
-#define MSM_PMEM_SMIPOOL_BASE	(MSM_GPU_PHYS_BASE + MSM_GPU_PHYS_SIZE)
-#define MSM_PMEM_SMIPOOL_SIZE	(MSM_PMEM_SMI_SIZE - MSM_FB_SIZE \
-					- MSM_GPU_PHYS_SIZE)
+#define MSM_PMEM_SMIPOOL_BASE	(MSM_FB_BASE + MSM_FB_SIZE)
+#define MSM_PMEM_SMIPOOL_SIZE	(MSM_PMEM_SMI_SIZE - MSM_FB_SIZE)
 
 #define PMEM_KERNEL_EBI1_SIZE	0x28000
+
+#define PMIC_VREG_WLAN_LEVEL	2600
+#define PMIC_VREG_GP6_LEVEL	2900
+
+#define FPGA_SDCC_STATUS	0x70000280
 
 static DEFINE_MUTEX(wifibtmutex);
 
@@ -155,11 +157,6 @@ static DEFINE_MUTEX(wifibtmutex);
 static int wifi_status_register(void (*callback)(int card_present, void *dev_id), void *dev_id);
 int wifi_set_carddetect(int val);
 #endif
-
-#define PMIC_VREG_WLAN_LEVEL	2600
-#define PMIC_VREG_GP6_LEVEL	2900
-
-#define FPGA_SDCC_STATUS	0x70000280
 
 #ifdef CONFIG_SMC91X
 static struct resource smc91x_resources[] = {
@@ -1656,14 +1653,14 @@ int wifi_set_carddetect(int val)
 }
 
 EXPORT_SYMBOL(wifi_set_carddetect);
-int bcm_wlan_power_off(int a) {
+void bcm_wlan_power_off(int a) {
 //	(void)a;
 	wifi_power(2*a-2);
 	//wifi_set_carddetect(0);
 }
 EXPORT_SYMBOL(bcm_wlan_power_off);
 
-int bcm_wlan_power_on(int a) {
+void bcm_wlan_power_on(int a) {
 //	(void)a;
 	wifi_power(2*a-1);
 	//wifi_set_carddetect(1);
@@ -2852,10 +2849,11 @@ static struct mmc_platform_data qsd8x50_sdc1_data = {
 #ifdef CONFIG_MMC_MSM_SDC1_DUMMY52_REQUIRED
 	.dummy52_required = 1,
 #endif
-	.msmsdcc_fmin	= 144000,
-	.msmsdcc_fmid	= 25000000,
-	.msmsdcc_fmax	= 49152000,
-	.nonremovable	= 0,
+#if defined(CONFIG_MACH_ACER_A1)
+	.status_irq = MSM_GPIO_TO_INT(A1_GPIO_SDCARD_DETECT),
+	.status = SDMMC_status,
+	.irq_flags = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
+#endif
 };
 #endif
 
@@ -2866,26 +2864,18 @@ static struct mmc_platform_data qsd8x50_sdcc2_wifi = {
     .register_status_notify = wifi_status_register,
     .embedded_sdio = &bcm_wifi_emb_data,
     .mmc_bus_width  = MMC_CAP_4_BIT_DATA,
-    .msmsdcc_fmin	= 144000,
-    .msmsdcc_fmid	= 25000000,
-    .msmsdcc_fmax	= 49152000,
-    .nonremovable	= 0,
 };
 #endif
 
 #ifdef CONFIG_MMC_MSM_SDC2_SUPPORT
 static struct mmc_platform_data qsd8x50_sdc2_data = {
-	.ocr_mask       = MMC_VDD_27_28 | MMC_VDD_28_29,
+	.ocr_mask       = MMC_VDD_20_21,//MMC_VDD_27_28 | MMC_VDD_28_29,
 	.translate_vdd  = msm_sdcc_setup_power,
 	.mmc_bus_width  = MMC_CAP_4_BIT_DATA,
 	.wpswitch	= msm_sdcc_get_wpswitch,
 #ifdef CONFIG_MMC_MSM_SDC2_DUMMY52_REQUIRED
 	.dummy52_required = 1,
 #endif
-	.msmsdcc_fmin	= 144000,
-	.msmsdcc_fmid	= 25000000,
-	.msmsdcc_fmax	= 49152000,
-	.nonremovable	= 1,
 };
 #endif
 
@@ -2901,10 +2891,6 @@ static struct mmc_platform_data qsd8x50_sdc3_data = {
 #ifdef CONFIG_MMC_MSM_SDC3_DUMMY52_REQUIRED
 	.dummy52_required = 1,
 #endif
-	.msmsdcc_fmin	= 144000,
-	.msmsdcc_fmid	= 25000000,
-	.msmsdcc_fmax	= 49152000,
-	.nonremovable	= 0,
 };
 #endif
 
@@ -2917,10 +2903,6 @@ static struct mmc_platform_data qsd8x50_sdc4_data = {
 #ifdef CONFIG_MMC_MSM_SDC4_DUMMY52_REQUIRED
 	.dummy52_required = 1,
 #endif
-	.msmsdcc_fmin	= 144000,
-	.msmsdcc_fmid	= 25000000,
-	.msmsdcc_fmax	= 49152000,
-	.nonremovable	= 0,
 };
 #endif
 
@@ -3177,7 +3159,7 @@ static void __init qsd8x50_init(void)
 	spi_register_board_info(msm_spi_board_info,
 				ARRAY_SIZE(msm_spi_board_info));
 #endif
-	msm_pm_set_platform_data(msm_pm_data);
+	msm_pm_set_platform_data(msm_pm_data, ARRAY_SIZE(msm_pm_data));
 	//kgsl_phys_memory_init();
 
 #ifdef CONFIG_SURF_FFA_GPIO_KEYPAD
