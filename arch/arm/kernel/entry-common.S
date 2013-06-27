@@ -11,7 +11,6 @@
 #include <asm/unistd.h>
 #include <asm/ftrace.h>
 #include <mach/entry-macro.S>
-#include <asm/unwind.h>
 
 #include "entry-header.S"
 
@@ -23,8 +22,6 @@
  * stack.
  */
 ret_fast_syscall:
- UNWIND(.fnstart	)
- UNWIND(.cantunwind	)
 	disable_irq				@ disable interrupts
 	ldr	r1, [tsk, #TI_FLAGS]
 	tst	r1, #_TIF_WORK_MASK
@@ -41,7 +38,6 @@ ret_fast_syscall:
 	mov	r0, r0
 	add	sp, sp, #S_FRAME_SIZE - S_PC
 	movs	pc, lr				@ return & move spsr_svc into cpsr
- UNWIND(.fnend		)
 
 /*
  * Ok, we need to do extra processing, enter the slow path.
