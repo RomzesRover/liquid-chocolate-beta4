@@ -123,7 +123,11 @@
 #define SMEM_SPINLOCK_I2C	"S:6"
 
 #define MSM_PMEM_ADSP_SIZE	0xFFF000
-#define MSM_FB_SIZE         0x177000
+#ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
+#define MSM_FB_SIZE     	0x00278780
+#else
+#define MSM_FB_SIZE     	x001B0500
+#endif
 #define MSM_AUDIO_SIZE		0x80000
 
 #ifdef CONFIG_MSM_SOC_REV_A
